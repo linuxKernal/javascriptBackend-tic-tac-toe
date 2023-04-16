@@ -128,4 +128,4 @@ io.on("connection", (socket) => {
     });
 });
 
-httpServer.listen(3000, () => console.log("server running..."));
+httpServer.listen(process.env.PORT || 3000, () => console.log("server running..."));
