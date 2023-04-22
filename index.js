@@ -32,10 +32,10 @@ const winningMatch = [
     [2, 4, 6],
 ];
 
-const status = Array(9).fill(null);
-
-function winner() {
+function winner(roomId) {
     let text = false;
+    const status = userGames[roomId].state;
+
     winningMatch.forEach((item) => {
         const [a, b, c] = item;
         if (status[a] && status[a] === status[b] && status[b] === status[c]) {
@@ -45,87 +45,102 @@ function winner() {
     return text;
 }
 
-let flag = true;
-
 io.on("connection", (socket) => {
-    socket.on("play", (data) => {
-        console.log(data);
-        console.log(status[data.data])
-        if (status[data.data] || (flag && !data.code) || (!flag && data.code)) return;
-        const currentRoom = data.room || data.code;
-        status[data.data] = data.code ? "X" : "O";
-        io.in(currentRoom).emit("stateChange", status);
-        if(winner()){
-            io.in(currentRoom).emit("winner",{
-                flag,
-                winMessage:`${status[data.data]} win the game congratulations 🏆🏆🏆`,
-                runMessage:`your are lost the game`,
-                winColor:"bg-lime-500",
-                runColor:"bg-orange-400"
-            })
-            flag = true;
-            status.fill(null)
-            return
-        }else if(!status.some(item=> item===null)){
-            io.in(currentRoom).emit("matchDraw",{
-                message:"match was draw",
-                color:"zinc"
-            })
-            flag = true;
-            status.fill(null)
-            return
+    socket.on("play", (index) => {
+        const data = +index;
+        const playRoom = Array.from(socket.rooms)[1];
+
+        const playerTurn = userGames[playRoom].turn;
+
+        if (
+            userGames[playRoom].state[data] ||
+            (playerTurn && userGames[playRoom].player2 == socket.id) ||
+            (playerTurn === false && userGames[playRoom].player1 == socket.id) ||
+            (userGames[playRoom].player2 === null)
+        ) {
+            
+            return;
         }
 
-        io.in(currentRoom).emit(
+        userGames[playRoom].state[data] = playerTurn ? "X" : "O";
+
+        io.in(playRoom).emit("stateChange", userGames[playRoom].state);
+        if (winner(playRoom)) {
+            io.in(playRoom).emit("winner", {
+                winMessage: `${
+                    users[
+                        userGames[playRoom][playerTurn ? "player1" : "player2"]
+                    ]
+                } win the game congratulations 🏆🏆🏆`,
+                runMessage: `your are lost the game`,
+                winColor: "bg-lime-500",
+                runColor: "bg-rose-500",
+                winner: playerTurn
+                    ? users[userGames[playRoom].player1]
+                    : users[userGames[playRoom].player2],
+            });
+            return;
+        } else if (!userGames[playRoom].state.some((item) => item === null)) {
+            io.in(playRoom).emit("matchDraw", {
+                message: "match draw have the nice day",
+                color: "bg-sky-400",
+            });
+            console.log("match draw have the nice day");
+            return;
+        }
+
+        io.in(playRoom).emit(
             "message",
             `hey ${
-                data.player
-                    ? users[userGames[currentRoom].admin].name
-                    : userGames[currentRoom].player
+                playerTurn
+                    ? users[userGames[playRoom].player2]
+                    : users[userGames[playRoom].player1]
             } it's your turn`
         );
-        console.log(status);
-        flag = !flag;
+        userGames[playRoom].turn = !playerTurn;
     });
+
     socket.on("createNewGame", (name, callback) => {
         const newId = getUid();
-        users[socket.id] = {
-            name,
-        };
+        users[socket.id] = name;
+
         userGames[newId] = {
-            admin: socket.id,
-            player: "waiting",
+            player1: socket.id,
+            player2: null,
+            turn: true,
+            state: Array(9).fill(null),
         };
         socket.join(newId);
-        callback({ status: "success", gameId: newId });
+        console.log(Array.from(socket.rooms));
         console.log("game created", users[socket.id], newId);
+        callback({ status: "success", gameId: newId });
     });
+
     socket.on("joinTheGame", (name, gameId, callback) => {
-        const player = userGames?.[gameId]?.player;
+        const player = userGames[gameId]?.player2;
         console.log("join requests", gameId);
-        if (player) {
-            if (player === "waiting") {
-                socket.join(gameId);
-                callback({
-                    status: "success",
-                    player: users[userGames[gameId].admin].name,
-                });
-                userGames[gameId].player = name;
-                console.log(userGames[gameId].admin);
-                socket.to(userGames[gameId].admin).emit("playerJoin", name);
-                io.in(gameId).emit(
-                    "message",
-                    `hey ${users[userGames[gameId].admin].name} it's your turn`
-                );
-            } else {
-                callback({
-                    status: "playing",
-                });
-            }
+        if (player === null) {
+            socket.join(gameId);
+            const playerName = users[userGames[gameId].player1];
+            callback({
+                status: "success",
+                player: playerName,
+            });
+            userGames[gameId].player2 = socket.id;
+            users[socket.id] = name
+            socket.to(userGames[gameId].player1).emit("playerJoin", name);
+
+            io.in(gameId).emit("message", `hey ${playerName} it's your turn`);
+        } else if (player) {
+            callback({
+                status: "playing",
+            });
         } else {
             callback({ status: "invalid code" });
         }
     });
 });
 
-httpServer.listen(process.env.PORT || 3000, () => console.log("server running..."));
+httpServer.listen(process.env.PORT || 3000, () =>
+    console.log("server running...")
+);
