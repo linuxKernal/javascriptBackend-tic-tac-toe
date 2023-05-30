@@ -56,7 +56,8 @@ io.on("connection", (socket) => {
             userGames[playRoom].state[data] ||
             (playerTurn && userGames[playRoom].player2 == socket.id) ||
             (playerTurn === false && userGames[playRoom].player1 == socket.id) ||
-            (userGames[playRoom].player2 === null)
+            (userGames[playRoom].player2 === null) ||
+            userGames[playRoom].win===true
         ) {
             
             return;
@@ -79,6 +80,7 @@ io.on("connection", (socket) => {
                     ? users[userGames[playRoom].player1]
                     : users[userGames[playRoom].player2],
             });
+            userGames[playRoom].win = true
             return;
         } else if (!userGames[playRoom].state.some((item) => item === null)) {
             io.in(playRoom).emit("matchDraw", {
@@ -100,6 +102,22 @@ io.on("connection", (socket) => {
         userGames[playRoom].turn = !playerTurn;
     });
 
+    socket.on("resetTheGame",()=>{
+        const playRoom = Array.from(socket.rooms)[1];
+        console.log(userGames[playRoom])
+        userGames[playRoom].win = false
+        userGames[playRoom].state.fill(null)
+        io.in(playRoom).emit(
+            "message",
+            `hey ${
+                true
+                    ? users[userGames[playRoom].player2]
+                    : users[userGames[playRoom].player1]
+            } it's your turn`
+        );
+        io.in(playRoom).emit("gameReset")
+    })
+
     socket.on("createNewGame", (name, callback) => {
         const newId = getUid();
         users[socket.id] = name;
@@ -109,6 +127,7 @@ io.on("connection", (socket) => {
             player2: null,
             turn: true,
             state: Array(9).fill(null),
+            win:false
         };
         socket.join(newId);
         console.log(Array.from(socket.rooms));
